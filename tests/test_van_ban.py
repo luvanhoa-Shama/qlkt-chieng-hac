@@ -71,3 +71,23 @@ def test_excel_va_lien_thong(nv, tmp_path):
     assert "999888" not in p_json.read_text(encoding="utf-8") and "999888" not in p_csv.read_text(encoding="utf-8-sig")
     nk = [r[0] for r in nv.c.execute("SELECT noi_dung FROM nhat_ky WHERE hanh_dong='xuat_file'")]
     assert any("chi_tra" in x for x in nk)
+
+
+def test_the_thuc_nd30(nv, tmp_path):
+    from docx.shared import Cm
+    hs = _chuan_bi(nv)
+    nv.trinh(hs, "8/TTr-VHXH", "2026-02-05")
+    p = vb.sinh_word(nv.c, hs, "to_trinh", tmp_path / "tt.docx")
+    d = docx.Document(p)
+    s = d.sections[0]
+    for thuc, yeu_cau in zip((s.top_margin, s.bottom_margin, s.left_margin, s.right_margin), (2, 2, 3, 2)):
+        assert abs(thuc - Cm(yeu_cau)) < Cm(0.01)
+    assert s.different_first_page_header_footer
+    assert "PAGE" in s.header._element.xml
+    chu = _chu(p)
+    assert "[[KE" not in chu and "Số: 08/TTr-VHXH" in chu and "ngày 05 tháng 02 năm 2026" in chu
+    # 3 đường kẻ: dưới tên cơ quan, dưới tiêu ngữ, dưới trích yếu
+    assert d.element.xml.count("<w:pBdr>") == 3
+    # căn cứ: dòng cuối kết thúc bằng dấu chấm
+    can_cu = [x.text for x in d.paragraphs if x.runs and x.runs[0].italic and x.text.startswith(("Căn cứ", "Xét"))]
+    assert can_cu[0].endswith(";") and can_cu[-1].startswith("Xét") and can_cu[-1].endswith(".")

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import sqlite3
 import sys
 from datetime import date, datetime
@@ -17,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, Side
 
 from qlkt.services.nghiep_vu import ten_hien_thi
+from qlkt.services.the_thuc import hoan_thien
 from qlkt.services.tien_thuong import doc_so_tien
 
 # Mặc định cấu hình cơ quan (người dùng sửa ở Danh mục → Thông tin cơ quan).
@@ -98,6 +100,14 @@ def ngay_chu(iso: str | None, thang_mac_dinh: str | None = None) -> str:
     d = date.fromisoformat(iso[:10])
     th = f"{d.month:02d}" if d.month <= 2 else str(d.month)
     return f"ngày {d.day:02d} tháng {th} năm {d.year}"
+
+
+def so_ky_hieu(s: str | None) -> str | None:
+    """NĐ 30: số văn bản nhỏ hơn 10 ghi thêm số 0 phía trước ('8/TTr-VHXH' -> '08/TTr-VHXH')."""
+    if not s:
+        return s
+    m = re.match(r"\s*(\d+)(.*)", s)
+    return f"{int(m.group(1)):02d}{m.group(2)}" if m else s.strip()
 
 
 def ngay_so(iso: str | None) -> str:
@@ -185,7 +195,13 @@ def ngu_canh(c: sqlite3.Connection, ho_so_id: int) -> dict:
     thanh_phan = [f"{ttr_dv} của {hs['dv']} kèm danh sách đề nghị"]
     if hs["bb_so"]:
         thanh_phan.append(f"Biên bản số {hs['bb_so']} {ngay_chu(hs['bb_ngay'])}")
-    so_ttr_vhxh = f"{hs['ttr_vhxh_so']}" if hs["ttr_vhxh_so"] else f"      /{ch['ky_hieu_ttr']}"
+    so_ttr_vhxh = so_ky_hieu(hs["ttr_vhxh_so"]) if hs["ttr_vhxh_so"] else f"      /{ch['ky_hieu_ttr']}"
+    ten_phong_cau = ch["ten_phong_thuong"][:1].lower() + ch["ten_phong_thuong"][1:]
+    # Căn cứ ban hành: mỗi căn cứ một dòng, kết thúc ";", dòng cuối kết thúc "."
+    cc_ttr.append(f"Xét {ttr_dv} của {hs['dv']} về việc đề nghị tặng {hs['ht']}{bb}.")
+    cc_qd += [f"Xét đề nghị của {hs['dv']} tại {ttr_dv};",
+              f"Theo đề nghị của Trưởng {ten_phong_cau} tại Tờ trình số {so_ttr_vhxh.strip()} "
+              f"{ngay_chu(ngay_ttr, hs['ttr_dv_ngay'])}."]
     cum = cum_doi_tuong(len(tt), len(cn))
 
     return {
@@ -197,7 +213,7 @@ def ngu_canh(c: sqlite3.Connection, ho_so_id: int) -> dict:
         "nguoi_quyet_dinh": nguoi_qd,
         "nguoi_quyet_dinh_hoa": f"CHỦ TỊCH ỦY BAN NHÂN DÂN XÃ {ten_xa.upper()}",
         "so_ttr": so_ttr_vhxh,
-        "so_qd": hs["qd_so"] if co_qd else f"      /{ch['ky_hieu_qd']}",
+        "so_qd": so_ky_hieu(hs["qd_so"]) if co_qd else f"      /{ch['ky_hieu_qd']}",
         "ngay_van_ban": ngay_chu(ngay_ttr, hs["ttr_dv_ngay"]),
         "ngay_qd": ngay_chu(hs["qd_ngay"] if co_qd else None),
         "hinh_thuc": hs["ht"],
@@ -207,9 +223,6 @@ def ngu_canh(c: sqlite3.Connection, ho_so_id: int) -> dict:
         "noi_dung_khen": noi_dung,
         "can_cu_ttr": cc_ttr,
         "can_cu_qd": cc_qd,
-        "cau_xet": f"Xét {ttr_dv} của {hs['dv']} về việc đề nghị tặng {hs['ht']}{bb}.",
-        "cau_xet_qd": (f"Xét đề nghị của {hs['dv']} tại {ttr_dv}; Theo đề nghị của Trưởng {ch['ten_phong_thuong'][:1].lower()}{ch['ten_phong_thuong'][1:]}"
-                       f" tại Tờ trình số {so_ttr_vhxh.strip()} {ngay_chu(ngay_ttr, hs['ttr_dv_ngay'])}."),
         "cau_hop_xet": hop_xet,
         "thanh_phan_ho_so": "; ".join(thanh_phan),
         "dieu_2": (f"Mức tiền thưởng kèm theo {hs['ht']} thực hiện theo quy định tại {can_cu_tien}. "
@@ -256,6 +269,7 @@ def sinh_word(c: sqlite3.Connection, ho_so_id: int, loai: str, duong_dan: str | 
     tpl.render(nc, autoescape=True)
     duong_dan = Path(duong_dan)
     tpl.save(str(duong_dan))
+    hoan_thien(duong_dan)
     _ghi_nhat_ky(c, ho_so_id, f"{loai}: {duong_dan.name}")
     return duong_dan
 
