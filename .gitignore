@@ -1,0 +1,19 @@
+# Không bao giờ đưa dữ liệu thật lên GitHub
+*.db
+*.db-*
+*.sqlite
+du-lieu/
+sao-luu/
+*.xls
+*.xlsx
+*.doc
+*.docx
+!mau/*.docx
+!mau/*.xlsx
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.spec
+anh-man-hinh/*.tmp
