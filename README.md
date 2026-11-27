@@ -8,8 +8,8 @@
 | Bước | Nội dung | Trạng thái |
 |---|---|---|
 | 1 | Thiết kế CSDL + màn hình mẫu (chỉ xem) | Xong |
-| 2 | Nhập, sửa: đối tượng, phong trào, hồ sơ; nhập từ Excel; trả lại hồ sơ | Đang góp ý |
-| 3 | Sinh Tờ trình, QĐ (Word), danh sách, DS chi trả (Excel), báo cáo, xuất liên thông | |
+| 2 | Nhập, sửa: đối tượng, phong trào, hồ sơ; nhập từ Excel; trả lại hồ sơ | Xong |
+| 3 | Sinh Tờ trình, QĐ (Word), danh sách, DS chi trả (Excel), báo cáo, xuất liên thông | Đang góp ý |
 | 4 | Đăng nhập, phân quyền, mã hóa, sao lưu, bộ cài .exe | |
 
 ## Chạy thử (máy có Python 3.11+)
@@ -26,6 +26,11 @@ pytest
 3. **Hồ sơ đề nghị** → *Nhập hồ sơ từ Excel*: phần mềm báo lỗi từng dòng, nhận ra người đã có, cảnh báo người đã được khen cùng hình thức trong năm.
 4. Kiểm tra → *Trả lại bổ sung* (ghi lý do, hạn) hoặc *Trình* (nhập số, ngày TTr VH-XH).
 5. Sau khi Chủ tịch ký → *Nhập Quyết định*, bỏ đánh dấu người không có tên trong QĐ. Hồ sơ khóa lại, lịch sử khen thưởng tự cập nhật.
+
+6. Ở mỗi hồ sơ có nút **Xuất**: Tờ trình (Word), Dự thảo QĐ + danh sách (Word), Danh sách đề nghị (Excel), Danh sách chi trả (Excel, có số tài khoản).
+7. **Báo cáo**: báo cáo năm (Excel), dữ liệu liên thông CSV/JSON (không chứa số tài khoản).
+
+Văn bản Word là **dự thảo**: rà soát các chỗ `[...]`, căn cứ, rồi trình ký trên iOffice. Mẫu Word nằm ở `mau/`, xã có thể mở bằng Word để sửa chữ (giữ nguyên các thẻ `{{ ... }}`, `{%p ... %}`). Thông tin cơ quan, người ký: **Danh mục → Thông tin cơ quan**.
 
 Mọi thao tác ghi vào **Danh mục → Nhật ký** (không sửa, không xóa được; số tài khoản không ghi vào nhật ký).
 

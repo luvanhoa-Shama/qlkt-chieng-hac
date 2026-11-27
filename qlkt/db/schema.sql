@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS ho_so (
     don_vi_id       INTEGER NOT NULL REFERENCES don_vi(id),
     hinh_thuc_id    INTEGER NOT NULL REFERENCES hinh_thuc(id),
     trich_yeu       TEXT NOT NULL,
+    -- Cụm từ dùng trong văn bản, VD: "có thành tích xuất sắc trong thực hiện nhiệm vụ ... năm 2026"
+    noi_dung_khen   TEXT,
     -- Tờ trình của đơn vị đề nghị
     ttr_dv_so       TEXT,
     ttr_dv_ngay     TEXT,

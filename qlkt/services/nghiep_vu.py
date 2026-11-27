@@ -27,7 +27,7 @@ CHUYEN_TRANG_THAI = {
 COT_DOI_TUONG = ("loai", "ten", "danh_xung", "cap_bac", "nam_sinh", "gioi_tinh", "chuc_vu", "don_vi_cong_tac",
                  "don_vi_id", "nguoi_dai_dien", "so_tai_khoan", "ngan_hang", "ghi_chu")
 COT_PHONG_TRAO = ("ten", "nam", "ngay_phat_dong", "han_nop_ho_so", "mo_ta")
-COT_HO_SO = ("phong_trao_id", "don_vi_id", "hinh_thuc_id", "trich_yeu", "ttr_dv_so", "ttr_dv_ngay",
+COT_HO_SO = ("phong_trao_id", "don_vi_id", "hinh_thuc_id", "trich_yeu", "noi_dung_khen", "ttr_dv_so", "ttr_dv_ngay",
              "bb_so", "bb_ngay", "bb_to_chuc_hop", "bb_so_du", "bb_tong_so", "bb_ty_le",
              "han_xu_ly", "ghi_chu")
 # Trường không ghi giá trị vào nhật ký
