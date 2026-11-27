@@ -17,3 +17,11 @@ build/
 dist/
 *.spec
 anh-man-hinh/*.tmp
+
+# Bước 4: khóa mã hóa, CSDL cũ chưa mã hóa, sản phẩm đóng gói
+khoa*.json
+*.key
+*.chua-ma-hoa
+build/
+dist/
+!dong-goi/qlkt.spec

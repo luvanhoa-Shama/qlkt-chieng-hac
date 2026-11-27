@@ -4,11 +4,16 @@ Không xóa cứng dữ liệu nghiệp vụ: đối tượng, phong trào, hồ
 """
 from __future__ import annotations
 
+import functools
 import sqlite3
 import unicodedata
 from datetime import date
 
 from qlkt.services.tien_thuong import luong_co_so_tai, tinh_tien
+
+
+from qlkt.db.database import LOI_TRUNG
+from qlkt.bao_mat.phan_quyen import MO_TA_QUYEN, co_quyen
 
 
 class LoiNghiepVu(Exception):
@@ -32,6 +37,7 @@ COT_HO_SO = ("phong_trao_id", "don_vi_id", "hinh_thuc_id", "trich_yeu", "noi_dun
              "han_xu_ly", "ghi_chu")
 # Trường không ghi giá trị vào nhật ký
 NHAY_CAM = {"so_tai_khoan"}
+COT_STK = ("so_tai_khoan", "ngan_hang")
 
 
 def chuan_hoa(s: str | None) -> str:
@@ -61,10 +67,34 @@ def chuan_hoa_doi_tuong(d: dict) -> dict:
     return d
 
 
+def can_quyen(quyen: str):
+    """Chặn ở tầng nghiệp vụ: tài khoản không đủ quyền thì không thực hiện, dù giao diện có hiện nút."""
+    def boc(ham):
+        @functools.wraps(ham)
+        def chay(self, *a, **kw):
+            self.kiem_quyen(quyen)
+            return ham(self, *a, **kw)
+        return chay
+    return boc
+
+
 class NghiepVu:
     def __init__(self, conn: sqlite3.Connection, nguoi_dung_id: int | None = None):
         self.c = conn
         self.nguoi_dung_id = nguoi_dung_id
+        self.vai_tro: str | None = None    # None = chạy nội bộ (kịch bản, kiểm thử)
+        if nguoi_dung_id is not None:
+            r = conn.execute("SELECT vai_tro FROM nguoi_dung WHERE id=?", (nguoi_dung_id,)).fetchone()
+            if r is None:
+                raise LoiNghiepVu("Không tìm thấy tài khoản.")
+            self.vai_tro = r["vai_tro"]
+
+    def co_quyen(self, quyen: str) -> bool:
+        return co_quyen(self.vai_tro, quyen)
+
+    def kiem_quyen(self, quyen: str) -> None:
+        if not self.co_quyen(quyen):
+            raise LoiNghiepVu(f"Tài khoản của anh/chị không có quyền: {MO_TA_QUYEN.get(quyen, quyen)}.")
 
     # ------------------------------------------------------------ tiện ích
     def ghi_nhat_ky(self, hanh_dong: str, bang: str | None = None, ban_ghi_id: int | None = None,
@@ -111,6 +141,7 @@ class NghiepVu:
                 return r
         return None
 
+    @can_quyen("sua_du_lieu")
     def them_doi_tuong(self, d: dict) -> int:
         if not (d.get("ten") or "").strip():
             raise LoiNghiepVu("Chưa nhập tên.")
@@ -119,11 +150,23 @@ class NghiepVu:
         if self.tim_doi_tuong_trung(d["loai"], d["ten"], d.get("don_vi_cong_tac")):
             raise LoiNghiepVu(f"Đã có \"{d['ten']}\" cùng đơn vị công tác trong danh sách.")
         d = chuan_hoa_doi_tuong({**d, "ten": " ".join(d["ten"].split())})
+        if not self.co_quyen("sua_stk"):
+            d = {k: v for k, v in d.items() if k not in COT_STK}
         id_ = self._them("doi_tuong", COT_DOI_TUONG, d)
         self.c.commit()
         return id_
 
     def sua_doi_tuong(self, id_: int, d: dict) -> None:
+        if not self.co_quyen("sua_du_lieu"):
+            # Kế toán: chỉ sửa số tài khoản, ngân hàng
+            self.kiem_quyen("sua_stk")
+            d = {k: v for k, v in d.items() if k in COT_STK}
+            if d:
+                self._sua("doi_tuong", COT_STK, id_, d)
+                self.c.commit()
+            return
+        if not self.co_quyen("sua_stk"):
+            d = {k: v for k, v in d.items() if k not in COT_STK}
         if "ten" in d and not (d["ten"] or "").strip():
             raise LoiNghiepVu("Chưa nhập tên.")
         cu = self.c.execute("SELECT * FROM doi_tuong WHERE id=?", (id_,)).fetchone()
@@ -135,6 +178,7 @@ class NghiepVu:
         self._sua("doi_tuong", COT_DOI_TUONG, id_, d)
         self.c.commit()
 
+    @can_quyen("sua_du_lieu")
     def xoa_doi_tuong(self, id_: int) -> None:
         n = self.c.execute("SELECT COUNT(*) FROM ho_so_doi_tuong hd JOIN ho_so hs ON hs.id=hd.ho_so_id "
                            "WHERE hd.doi_tuong_id=? AND hs.da_xoa=0", (id_,)).fetchone()[0]
@@ -144,6 +188,7 @@ class NghiepVu:
         self.c.commit()
 
     # ------------------------------------------------------------ phong trào
+    @can_quyen("sua_du_lieu")
     def them_phong_trao(self, d: dict) -> int:
         if not (d.get("ten") or "").strip() or not d.get("nam"):
             raise LoiNghiepVu("Cần nhập tên phong trào và năm.")
@@ -151,10 +196,12 @@ class NghiepVu:
         self.c.commit()
         return id_
 
+    @can_quyen("sua_du_lieu")
     def sua_phong_trao(self, id_: int, d: dict) -> None:
         self._sua("phong_trao", COT_PHONG_TRAO, id_, d)
         self.c.commit()
 
+    @can_quyen("sua_du_lieu")
     def xoa_phong_trao(self, id_: int) -> None:
         n = self.c.execute("SELECT COUNT(*) FROM ho_so WHERE phong_trao_id=? AND da_xoa=0", (id_,)).fetchone()[0]
         if n:
@@ -163,6 +210,7 @@ class NghiepVu:
         self.c.commit()
 
     # ------------------------------------------------------------ hồ sơ
+    @can_quyen("sua_du_lieu")
     def tao_ho_so(self, d: dict) -> int:
         for k, ten in (("don_vi_id", "đơn vị đề nghị"), ("hinh_thuc_id", "hình thức khen thưởng"),
                        ("trich_yeu", "trích yếu")):
@@ -182,6 +230,7 @@ class NghiepVu:
         if hs["trang_thai"] in ("da_co_qd", "khong_duyet"):
             raise LoiNghiepVu("Hồ sơ đã kết thúc (đã có quyết định hoặc không được duyệt), không sửa được.")
 
+    @can_quyen("sua_du_lieu")
     def sua_ho_so(self, id_: int, d: dict) -> None:
         self._chi_khi_chua_co_qd(self._ho_so(id_))
         self._sua("ho_so", COT_HO_SO, id_, d)
@@ -189,6 +238,7 @@ class NghiepVu:
             self.tinh_lai_tien(id_)
         self.c.commit()
 
+    @can_quyen("sua_du_lieu")
     def xoa_ho_so(self, id_: int) -> None:
         if self._ho_so(id_)["trang_thai"] == "da_co_qd":
             raise LoiNghiepVu("Hồ sơ đã có quyết định, không xóa được.")
@@ -215,6 +265,7 @@ class NghiepVu:
             return f"Đã được khen cùng hình thức năm {nam} (QĐ {r['qd_so']})."
         return None
 
+    @can_quyen("sua_du_lieu")
     def them_vao_ho_so(self, ho_so_id: int, doi_tuong_id: int, thanh_tich: str | None = None) -> str | None:
         """Thêm đối tượng vào danh sách hồ sơ. Trả về cảnh báo (nếu có)."""
         hs = self._ho_so(ho_so_id)
@@ -234,6 +285,7 @@ class NghiepVu:
         self.c.commit()
         return self.canh_bao_khen_trung(ho_so_id, doi_tuong_id)
 
+    @can_quyen("sua_du_lieu")
     def sua_dong_ho_so(self, dong_id: int, thanh_tich: str | None, so_tien: int | None) -> None:
         r = self.c.execute("SELECT * FROM ho_so_doi_tuong WHERE id=?", (dong_id,)).fetchone()
         self._chi_khi_chua_co_qd(self._ho_so(r["ho_so_id"]))
@@ -242,6 +294,7 @@ class NghiepVu:
         self.ghi_nhat_ky("sua", "ho_so_doi_tuong", dong_id, f"so_tien={so_tien}")
         self.c.commit()
 
+    @can_quyen("sua_du_lieu")
     def bo_khoi_ho_so(self, dong_id: int) -> None:
         r = self.c.execute("SELECT * FROM ho_so_doi_tuong WHERE id=?", (dong_id,)).fetchone()
         self._chi_khi_chua_co_qd(self._ho_so(r["ho_so_id"]))
@@ -250,6 +303,7 @@ class NghiepVu:
                          f"ho_so={r['ho_so_id']}; doi_tuong={r['doi_tuong_id']}")
         self.c.commit()
 
+    @can_quyen("sua_du_lieu")
     def tinh_lai_tien(self, ho_so_id: int) -> None:
         hs = self._ho_so(ho_so_id)
         for r in self.c.execute("SELECT hd.id, dt.loai FROM ho_so_doi_tuong hd JOIN doi_tuong dt "
@@ -266,16 +320,19 @@ class NghiepVu:
                        (*cap_nhat.values(), id_))
         self.ghi_nhat_ky("chuyen_trang_thai", "ho_so", id_, f"{hs['trang_thai']} -> {moi}. {ghi_chu}".strip())
 
+    @can_quyen("luong_ho_so")
     def tra_lai(self, id_: int, ly_do: str, han_bo_sung: str | None = None) -> None:
         if not (ly_do or "").strip():
             raise LoiNghiepVu("Cần ghi lý do trả lại.")
         self._chuyen(id_, "tra_lai", {"ly_do_tra_lai": ly_do.strip(), "han_xu_ly": han_bo_sung}, ly_do)
         self.c.commit()
 
+    @can_quyen("luong_ho_so")
     def nhan_lai_bo_sung(self, id_: int) -> None:
         self._chuyen(id_, "tiep_nhan", {"ly_do_tra_lai": None})
         self.c.commit()
 
+    @can_quyen("luong_ho_so")
     def trinh(self, id_: int, so_ttr: str, ngay_ttr: str) -> None:
         if not so_ttr or not ngay_ttr:
             raise LoiNghiepVu("Cần nhập số và ngày Tờ trình của Phòng VH-XH.")
@@ -285,6 +342,7 @@ class NghiepVu:
         self.tinh_lai_tien(id_)
         self.c.commit()
 
+    @can_quyen("luong_ho_so")
     def nhap_quyet_dinh(self, id_: int, so_qd: str, ngay_qd: str, nguoi_ky: str | None,
                         khong_duoc_ids: set[int] | None = None) -> None:
         """Ghi QĐ. khong_duoc_ids: các dòng (ho_so_doi_tuong.id) không có tên trong QĐ."""
@@ -300,6 +358,7 @@ class NghiepVu:
         self.c.execute("UPDATE ho_so_doi_tuong SET so_tien=NULL WHERE ho_so_id=? AND ket_qua='khong_duoc'", (id_,))
         self.c.commit()
 
+    @can_quyen("luong_ho_so")
     def khong_duyet(self, id_: int, ly_do: str) -> None:
         if not (ly_do or "").strip():
             raise LoiNghiepVu("Cần ghi lý do.")
@@ -317,13 +376,14 @@ class NghiepVu:
     }
 
     def luu_danh_muc(self, bang: str, d: dict, id_: int | None = None) -> int:
+        self.kiem_quyen("sua_du_lieu" if bang == "han_cong_viec" else "danh_muc")
         cot = self.DANH_MUC[bang]
         try:
             if id_ is None:
                 id_ = self._them(bang, cot, d)
             else:
                 self._sua(bang, cot, id_, d)
-        except sqlite3.IntegrityError as e:
+        except LOI_TRUNG as e:
             self.c.rollback()
             raise LoiNghiepVu("Dữ liệu bị trùng hoặc thiếu trường bắt buộc.") from e
         self.c.commit()

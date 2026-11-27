@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS nguoi_dung (
     -- quan_tri | thuong_truc | ke_toan | lanh_dao
     vai_tro         TEXT NOT NULL CHECK (vai_tro IN ('quan_tri','thuong_truc','ke_toan','lanh_dao')),
     so_lan_sai      INTEGER NOT NULL DEFAULT 0,
-    bi_khoa         INTEGER NOT NULL DEFAULT 0,
+    bi_khoa         INTEGER NOT NULL DEFAULT 0,      -- khóa do nhập sai nhiều lần
+    dang_dung       INTEGER NOT NULL DEFAULT 1,      -- 0 = đã ngừng sử dụng (không xóa)
+    phai_doi_mat_khau INTEGER NOT NULL DEFAULT 0,    -- 1 = phải đổi ở lần đăng nhập tới
+    dang_nhap_cuoi  TEXT,
     tao_luc         TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 

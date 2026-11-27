@@ -14,3 +14,9 @@ def nv(tmp_path):
     c.execute("INSERT INTO phong_trao(ten, nam, han_nop_ho_so) VALUES ('Quốc phòng', 2026, '2026-11-30')")
     c.commit()
     return NghiepVu(c, None)
+
+
+@pytest.fixture(autouse=True)
+def khoa_may_tam(tmp_path, monkeypatch):
+    """Ngoài Windows, lớp bảo vệ "máy" dùng tệp khóa: trỏ vào thư mục tạm của từng bài kiểm thử."""
+    monkeypatch.setenv("QLKT_KHOA_MAY", str(tmp_path / "may.key"))

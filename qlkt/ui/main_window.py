@@ -5,8 +5,9 @@ import os
 import sqlite3
 from datetime import date
 from pathlib import Path
+from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
@@ -15,7 +16,9 @@ from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
 
-from qlkt.services import excel_mau, van_ban
+from qlkt.bao_mat.phan_quyen import che_stk, co_quyen
+from qlkt.db.database import LOI_CSDL
+from qlkt.services import excel_mau, sao_luu, van_ban
 from qlkt.services.nghiep_vu import CHUYEN_TRANG_THAI, LoiNghiepVu, NghiepVu, ten_hien_thi
 from qlkt.ui.hop_thoai import HopThoaiChonNhieu, HopThoaiNhap, Truong
 
@@ -111,8 +114,35 @@ def tieu_de(text: str) -> QLabel:
     return lb
 
 
-def nut(text: str, ham=None, chinh: bool = False) -> QPushButton:
-    b = QPushButton(text)
+# Nút cần quyền (theo chữ trên nút). Tầng nghiệp vụ vẫn kiểm tra lại; ẩn nút để giao diện gọn, đúng vai trò.
+QUYEN_NUT = {
+    **dict.fromkeys(["+ Thêm hạn công việc", "Đánh dấu đã xong", "Tạo mới…", "Nhập hồ sơ từ Excel…", "+ Hồ sơ mới",
+                     "Sửa thông tin", "Xóa", "+ Thêm tập thể/cá nhân", "Sửa thành tích/tiền", "Bỏ khỏi hồ sơ",
+                     "+ Thêm", "+ Phong trào mới", "Xuất mẫu Excel gửi các phòng…"], "sua_du_lieu"),
+    "Sửa": "sua_stk",   # trang Cá nhân, tập thể: kế toán sửa được số tài khoản
+    **dict.fromkeys(["Trả lại bổ sung…", "Nhận lại hồ sơ đã bổ sung", "Trình (nhập số Tờ trình)…", "Nhập Quyết định…",
+                     "Không được duyệt…"], "luong_ho_so"),
+    **dict.fromkeys(["Tờ trình (Word)", "Dự thảo QĐ + danh sách (Word)", "Danh sách đề nghị (Excel)",
+                     "Xuất báo cáo Excel…", "Xuất dữ liệu liên thông (CSV/JSON)…"], "xuat_van_ban"),
+    "Danh sách chi trả (Excel)": "xuat_chi_tra",
+    "Sửa thông tin cơ quan…": "danh_muc",
+}
+_vai_tro_hien_tai: list[str | None] = [None]   # đặt bởi CuaSoChinh trước khi dựng các trang
+
+
+class _NutAn(QPushButton):
+    """Nút của chức năng tài khoản không có quyền: luôn ẩn, kể cả khi trang gọi setVisible(True)."""
+
+    def setVisible(self, _v: bool) -> None:  # noqa: N802 - tên hàm của Qt
+        super().setVisible(False)
+
+
+def nut(text: str, ham=None, chinh: bool = False, quyen: str | None = None) -> QPushButton:
+    quyen = quyen or QUYEN_NUT.get(text)
+    an = quyen is not None and not co_quyen(_vai_tro_hien_tai[0], quyen)
+    b = _NutAn(text) if an else QPushButton(text)
+    if an:
+        b.setVisible(False)
     if chinh:
         b.setObjectName("chinh")
     if ham:
@@ -126,7 +156,7 @@ def chay(parent: QWidget, ham, *args, **kw):
         return True, ham(*args, **kw)
     except LoiNghiepVu as e:
         QMessageBox.warning(parent, "Không thực hiện được", str(e))
-    except sqlite3.Error as e:
+    except LOI_CSDL as e:
         QMessageBox.critical(parent, "Lỗi dữ liệu", f"Lỗi CSDL: {e}")
     return False, None
 
@@ -558,6 +588,8 @@ class TrangHoSo(Trang):
     def xuat(self, loai: str) -> None:
         if self.hs_id is None:
             return
+        if not chay(self, self.nv.kiem_quyen, "xuat_chi_tra" if loai == "chi_tra" else "xuat_van_ban")[0]:
+            return
         if loai == "chi_tra" and not hoi(self, "Danh sách chi trả có SỐ TÀI KHOẢN (dữ liệu cá nhân). "
                                               "Chỉ gửi cho kế toán, không gửi rộng hoặc đưa lên mạng. Tiếp tục?"):
             return
@@ -673,6 +705,8 @@ class TrangDoiTuong(Trang):
     @staticmethod
     def hop_thoai_doi_tuong(parent: QWidget, nv: NghiepVu, id_: int | None = None) -> int | None:
         gt = dict(nv.c.execute("SELECT * FROM doi_tuong WHERE id=?", (id_,)).fetchone()) if id_ else None
+        if gt and not nv.co_quyen("xem_stk"):
+            gt["so_tai_khoan"] = che_stk(gt["so_tai_khoan"])
         d = HopThoaiNhap("Sửa tập thể/cá nhân" if id_ else "Thêm tập thể/cá nhân",
                          TrangDoiTuong.truong(nv.c), gt, parent=parent,
                          ghi_chu="Không nhập CCCD. Số tài khoản là dữ liệu cá nhân, chỉ nhập khi cần chi trả.")
@@ -851,7 +885,8 @@ class TabDanhMuc(QWidget):
         self.ghi_chu = ghi_chu
         v = QVBoxLayout(self)
         hang = QHBoxLayout(); hang.addStretch()
-        hang.addWidget(nut("+ Thêm", self.them)); hang.addWidget(nut("Sửa", self.sua))
+        hang.addWidget(nut("+ Thêm", self.them, quyen="danh_muc"))
+        hang.addWidget(nut("Sửa", self.sua, quyen="danh_muc"))
         v.addLayout(hang)
         self.t = bang(cot, gian=1)
         self.t.doubleClicked.connect(self.sua)
@@ -935,13 +970,16 @@ class TrangDanhMuc(Trang):
         tabs.insertTab(0, ch, "Thông tin cơ quan")
         tabs.setCurrentIndex(0)
         nk = QWidget(); nv_ = QVBoxLayout(nk)
-        self.nhat_ky = bang(["Thời gian", "Hành động", "Bảng", "Mã", "Nội dung"], gian=4)
+        self.nhat_ky = bang(["Thời gian", "Người dùng", "Hành động", "Bảng", "Mã", "Nội dung"], gian=5)
         nv_.addWidget(self.nhat_ky)
-        tabs.addTab(nk, "Nhật ký")
+        if nv.co_quyen("nhat_ky"):
+            tabs.addTab(nk, "Nhật ký")
         v.addWidget(tabs)
         self.nap()
 
     def sua_cau_hinh(self) -> None:
+        if not chay(self, self.nv.kiem_quyen, "danh_muc")[0]:
+            return
         ch = van_ban.doc_cau_hinh(self.c)
         nhieu = {"quyen_ky_ttr", "quyen_ky_qd", "noi_nhan_ttr", "noi_nhan_qd", "thi_hanh_qd"}
         d = HopThoaiNhap("Thông tin cơ quan, người ký", [
@@ -957,20 +995,61 @@ class TrangDanhMuc(Trang):
                                   for k, nhan in van_ban.NHAN_CAU_HINH.items()])
         for _, w in self.tabs:
             w.nap()
-        rs = self.c.execute("SELECT * FROM nhat_ky ORDER BY id DESC LIMIT 300").fetchall()
-        do_du_lieu(self.nhat_ky, [[r["thoi_gian"], r["hanh_dong"], r["bang"], r["ban_ghi_id"], r["noi_dung"]]
-                                  for r in rs])
+        if not self.nv.co_quyen("nhat_ky"):
+            return
+        rs = self.c.execute("SELECT nk.*, nd.ten_dang_nhap FROM nhat_ky nk LEFT JOIN nguoi_dung nd "
+                            "ON nd.id=nk.nguoi_dung_id ORDER BY nk.id DESC LIMIT 500").fetchall()
+        do_du_lieu(self.nhat_ky, [[r["thoi_gian"], r["ten_dang_nhap"] or "", r["hanh_dong"], r["bang"],
+                                   r["ban_ghi_id"], r["noi_dung"]] for r in rs])
+
+
+class _BoDemNhanRoi(QObject):
+    """Đếm thời gian không thao tác (chuột, bàn phím) để khóa phiên."""
+
+    def __init__(self, timer: QTimer):
+        super().__init__()
+        self.timer = timer
+
+    def eventFilter(self, _obj, e) -> bool:  # noqa: N802
+        if e.type() in (QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.Wheel, QEvent.MouseMove):
+            self.timer.start()
+        return False
 
 
 class CuaSoChinh(QMainWindow):
     TRANG = [("Tổng quan", TrangTongQuan), ("Hồ sơ đề nghị", TrangHoSo), ("Cá nhân, tập thể", TrangDoiTuong),
              ("Phong trào", TrangPhongTrao), ("Báo cáo", TrangBaoCao), ("Danh mục", TrangDanhMuc)]
+    PHUT_KHOA = 15
 
-    def __init__(self, c: sqlite3.Connection, ten_nguoi_dung: str = "", nguoi_dung_id: int | None = None):
+    def __init__(self, c, nguoi_dung=None, moi_truong=None, khoa: bytes | None = None,
+                 khi_dang_xuat: Callable[[], None] | None = None):
+        """nguoi_dung: NguoiDung (đã đăng nhập) hoặc chuỗi tên (chế độ thử, đủ quyền)."""
         super().__init__()
-        self.nv = NghiepVu(c, nguoi_dung_id)
+        self.nguoi_dung = nguoi_dung if not isinstance(nguoi_dung, str) else None
+        self.ten_hien = nguoi_dung if isinstance(nguoi_dung, str) else (
+            f"{nguoi_dung.ho_ten}\n{nguoi_dung.ten_vai_tro}" if nguoi_dung else "")
+        self.moi_truong, self.khoa, self.khi_dang_xuat = moi_truong, khoa, khi_dang_xuat
+        self.dang_dang_xuat = False
         self.setWindowTitle("Quản lý thi đua – khen thưởng · UBND xã Chiềng Hặc")
         self.setStyleSheet(STYLE)
+        self._dung(c)
+        msg = ("Dữ liệu lưu trên máy này, đã mã hóa, không kết nối Internet." if khoa else
+               "CHẾ ĐỘ THỬ: dữ liệu chưa mã hóa, chỉ dùng dữ liệu giả.")
+        self.statusBar().showMessage(msg)
+        # khóa phiên khi không thao tác
+        self.hen_gio = QTimer(self); self.hen_gio.setSingleShot(True)
+        self.hen_gio.setInterval(self.PHUT_KHOA * 60 * 1000)
+        self.hen_gio.timeout.connect(self.khoa_phien)
+        self._bo_dem = _BoDemNhanRoi(self.hen_gio)
+        if self.nguoi_dung is not None:
+            from PySide6.QtWidgets import QApplication
+            QApplication.instance().installEventFilter(self._bo_dem)
+            self.hen_gio.start()
+
+    def _dung(self, c) -> None:
+        from qlkt.ui.quan_tri import TrangQuanTri   # tránh import vòng
+        self.nv = NghiepVu(c, self.nguoi_dung.id if self.nguoi_dung else None)
+        _vai_tro_hien_tai[0] = self.nv.vai_tro
         goc = QWidget(); h = QHBoxLayout(goc); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(0)
         trai = QWidget(); trai.setStyleSheet("background:#12355b")
         tv = QVBoxLayout(trai); tv.setContentsMargins(0, 12, 0, 12)
@@ -979,19 +1058,77 @@ class CuaSoChinh(QMainWindow):
         tv.addWidget(logo)
         self.menu = QListWidget(); self.menu.setObjectName("sidebar"); self.menu.setFixedWidth(190)
         tv.addWidget(self.menu, 1)
-        nd = QLabel(f"  {ten_nguoi_dung}"); nd.setStyleSheet("color:#c9d6e3;padding:6px")
+        nd = QLabel(self.ten_hien); nd.setStyleSheet("color:#c9d6e3;padding:6px 10px"); nd.setWordWrap(True)
         tv.addWidget(nd)
+        if self.nguoi_dung is not None:
+            kieu = "color:#c9d6e3;background:transparent;border:1px solid #3d6a99;margin:2px 10px;padding:4px"
+            for t, ham in (("Đổi mật khẩu", self.doi_mat_khau), ("Đăng xuất", self.dang_xuat)):
+                b = QPushButton(t); b.setStyleSheet(kieu); b.clicked.connect(ham); tv.addWidget(b)
         self.stack = QStackedWidget()
-        for ten, cls in self.TRANG:
+        trang = list(self.TRANG)
+        for ten, cls in trang:
             self.menu.addItem(ten)
             w = cls(self.nv); w.layout().setContentsMargins(16, 12, 16, 12)
+            self.stack.addWidget(w)
+        if any(self.nv.co_quyen(q) for q in ("nguoi_dung", "sao_luu", "khoi_phuc")):
+            self.menu.addItem("Quản trị")
+            w = TrangQuanTri(self.nv, self); w.layout().setContentsMargins(16, 12, 16, 12)
             self.stack.addWidget(w)
         self.menu.currentRowChanged.connect(self._doi_trang)
         self.menu.setCurrentRow(0)
         h.addWidget(trai); h.addWidget(self.stack, 1)
+        cu = self.centralWidget()
         self.setCentralWidget(goc)
-        self.statusBar().showMessage("Dữ liệu lưu trên máy này, không kết nối Internet.")
+        if cu is not None:
+            cu.deleteLater()
 
     def _doi_trang(self, i: int) -> None:
         self.stack.setCurrentIndex(i)
         self.stack.widget(i).nap()
+
+    @property
+    def c(self):
+        return self.nv.c
+
+    def thay_ket_noi(self, c) -> None:
+        """Sau khi khôi phục: dựng lại các trang với kết nối mới."""
+        self._dung(c)
+
+    # ------------------------------------------------------------ tài khoản, phiên
+    def doi_mat_khau(self) -> None:
+        from qlkt.ui.dang_nhap import HopThoaiDoiMatKhau
+        HopThoaiDoiMatKhau(self.c, self.nguoi_dung, parent=self).exec()
+
+    def khoa_phien(self) -> None:
+        from qlkt.ui.dang_nhap import HopThoaiDangNhap
+        if self.nguoi_dung is None or not self.isVisible():
+            return
+        self.hen_gio.stop()
+        self.centralWidget().setVisible(False)
+        self.nv.ghi_nhat_ky("khoa_phien", "nguoi_dung", self.nguoi_dung.id); self.c.commit()
+        d = HopThoaiDangNhap(self.c, co_dinh=self.nguoi_dung, parent=self)
+        if d.exec():
+            self.centralWidget().setVisible(True)
+            self.hen_gio.start()
+        else:
+            self.dang_xuat()
+
+    def dang_xuat(self) -> None:
+        self.nv.ghi_nhat_ky("dang_xuat", "nguoi_dung", self.nguoi_dung.id if self.nguoi_dung else None)
+        self.c.commit()
+        self.dang_dang_xuat = True
+        self.close()
+
+    def closeEvent(self, e) -> None:  # noqa: N802
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().removeEventFilter(self._bo_dem)
+        self.hen_gio.stop()
+        if self.moi_truong is not None:
+            try:
+                sao_luu.sao_luu(self.c, self.khoa, self.moi_truong.sao_luu, "tu-dong", self.moi_truong.du_lieu,
+                                self.nv.nguoi_dung_id)
+            except Exception as loi:  # noqa: BLE001
+                QMessageBox.warning(self, "Chưa sao lưu được", f"Sao lưu tự động khi thoát bị lỗi: {loi}")
+        super().closeEvent(e)
+        if self.dang_dang_xuat and self.khi_dang_xuat:
+            QTimer.singleShot(0, self.khi_dang_xuat)   # mở lại màn đăng nhập sau khi cửa sổ đã đóng hẳn
