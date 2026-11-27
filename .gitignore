@@ -24,3 +24,4 @@ khoa*.json
 *.chua-ma-hoa
 build/
 dist/
+!dong-goi/qlkt.spec
