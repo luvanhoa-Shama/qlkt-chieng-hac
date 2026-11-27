@@ -32,7 +32,8 @@ O_THONG_TIN = [
     ("bb_ty_le", "Tỷ lệ biểu quyết nhất trí", "VD: 100%"),
 ]
 COT_DS = [
-    ("stt", "STT", 6), ("loai", "Loại (Tập thể/Cá nhân)", 14), ("danh_xung", "Danh xưng/Cấp bậc", 14),
+    ("stt", "STT", 6), ("loai", "Loại (Tập thể/Cá nhân)", 14), ("danh_xung", "Ông/Bà", 8),
+    ("cap_bac", "Cấp bậc (chỉ Quân sự, Công an)", 16),
     ("ten", "Họ và tên / Tên tập thể", 30), ("chuc_vu", "Chức vụ", 22),
     ("don_vi_cong_tac", "Đơn vị công tác", 28), ("thanh_tich", "Tóm tắt thành tích", 45),
     ("nguoi_dai_dien", "Người đại diện (tập thể)", 22), ("ghi_chu", "Ghi chú", 18),
@@ -89,6 +90,9 @@ def xuat_mau(duong_dan: str | Path, phong_trao: dict, ten_don_vi: str = "") -> P
     dv = DataValidation(type="list", formula1='"Tập thể,Cá nhân"', allow_blank=True)
     dv.add(f"B{DONG_TIEU_DE_DS + 1}:B{DONG_TIEU_DE_DS + 500}")
     ds.add_data_validation(dv)
+    dv2 = DataValidation(type="list", formula1='"Ông,Bà"', allow_blank=True)
+    dv2.add(f"C{DONG_TIEU_DE_DS + 1}:C{DONG_TIEU_DE_DS + 500}")
+    ds.add_data_validation(dv2)
 
     meta = wb.create_sheet(SHEET_META)
     meta["A1"], meta["B1"] = "phien_ban_mau", PHIEN_BAN_MAU
@@ -159,6 +163,13 @@ def doc_mau(duong_dan: str | Path) -> KetQuaDoc:
         if not d["ten"]:
             kq.loi.append(f"Dòng {r}: chưa có họ tên / tên tập thể.")
             continue
+        if d["danh_xung"]:
+            dx = {"ông": "Ông", "bà": "Bà"}.get(chuan_hoa(d["danh_xung"]))
+            if dx is None:
+                kq.loi.append(f"Dòng {r}: cột Ông/Bà chỉ ghi \"Ông\" hoặc \"Bà\" "
+                              f"(cấp bậc như \"{d['danh_xung']}\" ghi ở cột Cấp bậc).")
+                continue
+            d["danh_xung"] = dx
         d["dong_excel"] = r
         kq.dong.append(d)
     da_gap: dict[tuple, int] = {}
@@ -202,7 +213,7 @@ def nhap_ho_so(nv: NghiepVu, kq: KetQuaDoc, hinh_thuc_id: int, trich_yeu: str,
             if d["chuc_vu"] and d["chuc_vu"] != cu["chuc_vu"]:
                 nv.sua_doi_tuong(dt_id, {"chuc_vu": d["chuc_vu"]})
         else:
-            dt_id = nv.them_doi_tuong({k: d[k] for k in ("loai", "ten", "danh_xung", "chuc_vu",
+            dt_id = nv.them_doi_tuong({k: d[k] for k in ("loai", "ten", "danh_xung", "cap_bac", "chuc_vu",
                                                           "don_vi_cong_tac", "nguoi_dai_dien", "ghi_chu")}
                                       | {"don_vi_id": dv_id})
             ket_qua.them_moi += 1

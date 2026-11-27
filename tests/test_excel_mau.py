@@ -14,6 +14,8 @@ def _dien(path, dong, thong_tin=None):
     for i, k in enumerate(keys, start=4):
         tt.cell(i, 2, vals.get(k))
     ds = wb["Danh sách"]
+    # r: STT, Loại, Ông/Bà, Tên, Chức vụ, Đơn vị, Thành tích, Đại diện, Ghi chú[, Cấp bậc]
+    dong = [r[:3] + [r[9] if len(r) > 9 else None] + r[3:9] for r in dong]
     for i, r in enumerate(dong, start=DONG_TIEU_DE_DS + 1):
         for j, v in enumerate(r, start=1):
             ds.cell(i, j, v)
@@ -25,18 +27,22 @@ def test_xuat_dien_nhap(nv, tmp_path):
     _dien(p, [
         [1, "Tập thể", None, "Dân quân bản Mẫu", None, "Bản Mẫu", "Xuất sắc", "Người X", None],
         [2, "Cá nhân", "Ông", "Nguyễn Văn A", "Bản đội trưởng", "Bản Mẫu", "Xuất sắc", None, None],
+        [3, "Cá nhân", "Ông", "Trần Văn C", "Phó CHT", "Ban CHQS", "Xuất sắc", None, None, "Đại úy"],
     ])
     kq = doc_mau(p)
     assert kq.loi == []
     assert kq.phong_trao_id == 1 and kq.thong_tin["ttr_dv_ngay"] == "2026-11-25"
     n = nhap_ho_so(nv, kq, 1, "Khen QP 2026")
-    assert (n.them_moi, n.da_co) == (2, 0)
+    assert (n.them_moi, n.da_co) == (3, 0)
     tien = sorted(r[0] for r in nv.c.execute("SELECT so_tien FROM ho_so_doi_tuong"))
-    assert tien == [759000, 1518000]
+    assert tien == [759000, 759000, 1518000]
+    from qlkt.services.nghiep_vu import ten_hien_thi
+    ten = [ten_hien_thi(r) for r in nv.c.execute("SELECT * FROM doi_tuong ORDER BY id")]
+    assert ten == ["Dân quân bản Mẫu", "Ông Nguyễn Văn A", "Đại úy Trần Văn C"]
     # Nhập lần 2 cùng người: nhận ra đối tượng đã có
     kq2 = doc_mau(p)
     n2 = nhap_ho_so(nv, kq2, 1, "Khen QP 2026 đợt 2")
-    assert (n2.them_moi, n2.da_co) == (0, 2)
+    assert (n2.them_moi, n2.da_co) == (0, 3)
 
 
 def test_bao_loi(nv, tmp_path):
@@ -46,9 +52,11 @@ def test_bao_loi(nv, tmp_path):
         [2, "Cá nhân", None, None, None, None, None, None, None],
         [3, "Cá nhân", None, "B", None, "Đv", None, None, None],
         [4, "cá nhân", None, " b ", None, "đv", None, None, None],
+        [5, "Cá nhân", "Đại úy", "D", None, None, None, None, None],
     ], {"ttr_dv_ngay": "32/13/2026"})
     loi = " | ".join(doc_mau(p).loi)
     assert "Dòng 4" in loi and "Dòng 5" in loi and "trùng với dòng 6" in loi and "Ngày Tờ trình" in loi
+    assert "Dòng 8: cột Ông/Bà" in loi
 
 
 def test_file_khong_dung_mau(tmp_path):

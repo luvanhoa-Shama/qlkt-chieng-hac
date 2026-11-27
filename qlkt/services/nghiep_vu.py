@@ -24,7 +24,7 @@ CHUYEN_TRANG_THAI = {
     "khong_duyet": set(),
 }
 
-COT_DOI_TUONG = ("loai", "ten", "danh_xung", "nam_sinh", "gioi_tinh", "chuc_vu", "don_vi_cong_tac",
+COT_DOI_TUONG = ("loai", "ten", "danh_xung", "cap_bac", "nam_sinh", "gioi_tinh", "chuc_vu", "don_vi_cong_tac",
                  "don_vi_id", "nguoi_dai_dien", "so_tai_khoan", "ngan_hang", "ghi_chu")
 COT_PHONG_TRAO = ("ten", "nam", "ngay_phat_dong", "han_nop_ho_so", "mo_ta")
 COT_HO_SO = ("phong_trao_id", "don_vi_id", "hinh_thuc_id", "trich_yeu", "ttr_dv_so", "ttr_dv_ngay",
@@ -37,6 +37,28 @@ NHAY_CAM = {"so_tai_khoan"}
 def chuan_hoa(s: str | None) -> str:
     """Chuẩn hóa để so trùng: NFC, bỏ khoảng trắng thừa, chữ thường."""
     return " ".join(unicodedata.normalize("NFC", s or "").split()).lower()
+
+
+def ten_hien_thi(dt) -> str:
+    """Tên in trên danh sách, QĐ: cá nhân có cấp bậc (LLVT) thì in cấp bậc, không thì Ông/Bà."""
+    if dt["loai"] == "tap_the":
+        return dt["ten"]
+    tien_to = dt["cap_bac"] or dt["danh_xung"]
+    return f"{tien_to} {dt['ten']}" if tien_to else dt["ten"]
+
+
+def chuan_hoa_doi_tuong(d: dict) -> dict:
+    """Tập thể không có Ông/Bà, cấp bậc; cá nhân chưa chọn Ông/Bà thì suy từ giới tính."""
+    d = dict(d)
+    if d.get("loai") == "tap_the":
+        d["danh_xung"] = d["cap_bac"] = None
+    elif not d.get("danh_xung") and d.get("gioi_tinh") in ("Nam", "Nữ"):
+        d["danh_xung"] = "Ông" if d["gioi_tinh"] == "Nam" else "Bà"
+    if d.get("danh_xung") not in (None, "Ông", "Bà"):
+        raise LoiNghiepVu("Ô \"Ông/Bà\" chỉ nhận Ông hoặc Bà. Cấp bậc (Đại úy…) ghi ở ô Cấp bậc.")
+    if d.get("cap_bac"):
+        d["cap_bac"] = " ".join(str(d["cap_bac"]).split())
+    return d
 
 
 class NghiepVu:
@@ -96,7 +118,7 @@ class NghiepVu:
             raise LoiNghiepVu("Loại phải là Cá nhân hoặc Tập thể.")
         if self.tim_doi_tuong_trung(d["loai"], d["ten"], d.get("don_vi_cong_tac")):
             raise LoiNghiepVu(f"Đã có \"{d['ten']}\" cùng đơn vị công tác trong danh sách.")
-        d = {**d, "ten": " ".join(d["ten"].split())}
+        d = chuan_hoa_doi_tuong({**d, "ten": " ".join(d["ten"].split())})
         id_ = self._them("doi_tuong", COT_DOI_TUONG, d)
         self.c.commit()
         return id_
@@ -108,6 +130,8 @@ class NghiepVu:
         loai, ten = d.get("loai", cu["loai"]), d.get("ten", cu["ten"])
         if self.tim_doi_tuong_trung(loai, ten, d.get("don_vi_cong_tac", cu["don_vi_cong_tac"]), id_):
             raise LoiNghiepVu(f"Đã có \"{ten}\" cùng đơn vị công tác trong danh sách.")
+        d = chuan_hoa_doi_tuong({**dict(cu), **d})
+        d = {k: v for k, v in d.items() if k in COT_DOI_TUONG}
         self._sua("doi_tuong", COT_DOI_TUONG, id_, d)
         self.c.commit()
 

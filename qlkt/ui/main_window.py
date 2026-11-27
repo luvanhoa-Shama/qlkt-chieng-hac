@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from qlkt.services import excel_mau
-from qlkt.services.nghiep_vu import CHUYEN_TRANG_THAI, LoiNghiepVu, NghiepVu
+from qlkt.services.nghiep_vu import CHUYEN_TRANG_THAI, LoiNghiepVu, NghiepVu, ten_hien_thi
 from qlkt.ui.hop_thoai import HopThoaiChonNhieu, HopThoaiNhap, Truong
 
 TRANG_THAI = {
@@ -404,12 +404,12 @@ class TrangHoSo(Trang):
                f"dự {r['bb_so_du'] or '?'}/{r['bb_tong_so'] or '?'}, nhất trí {r['bb_ty_le'] or '?'}"
                if r["bb_ngay"] else "<span style='color:#c2410c'>Chưa có biên bản họp xét</span>")
             + tra_lai + qd)
-        ds = self.c.execute("SELECT hd.*, dt.loai, dt.ten, dt.danh_xung, dt.chuc_vu, dt.don_vi_cong_tac "
+        ds = self.c.execute("SELECT hd.*, dt.loai, dt.ten, dt.danh_xung, dt.cap_bac, dt.chuc_vu, dt.don_vi_cong_tac "
                             "FROM ho_so_doi_tuong hd JOIN doi_tuong dt ON dt.id=hd.doi_tuong_id "
                             "WHERE hd.ho_so_id=? ORDER BY dt.loai DESC, hd.thu_tu, hd.id", (hs_id,)).fetchall()
         kq = {"de_nghi": "Đề nghị", "duoc_khen": "Được khen", "khong_duoc": "Không được khen"}
         do_du_lieu(self.ds_dt, [[i + 1, "Tập thể" if d["loai"] == "tap_the" else "Cá nhân",
-                                 " ".join(filter(None, [d["danh_xung"], d["ten"]])),
+                                 ten_hien_thi(d),
                                  ", ".join(filter(None, [d["chuc_vu"], d["don_vi_cong_tac"]])),
                                  d["tom_tat_thanh_tich"], kq[d["ket_qua"]], tien(d["so_tien"])]
                                 for i, d in enumerate(ds)], [d["id"] for d in ds])
@@ -615,7 +615,9 @@ class TrangDoiTuong(Trang):
     def truong(c: sqlite3.Connection) -> list[Truong]:
         return [
             Truong("loai", "Loại", "chon", bat_buoc=True, lua_chon=LOAI_DT),
-            Truong("danh_xung", "Danh xưng/Cấp bậc", goi_y="Ông, Bà, Đại úy… (cá nhân)"),
+            Truong("danh_xung", "Ông/Bà", "chon", lua_chon=[("— (tự theo giới tính)", None), ("Ông", "Ông"),
+                                                            ("Bà", "Bà")]),
+            Truong("cap_bac", "Cấp bậc", goi_y="Chỉ ghi với Quân sự, Công an: Đại úy, Thiếu tá…"),
             Truong("ten", "Họ tên / Tên tập thể", bat_buoc=True),
             Truong("chuc_vu", "Chức vụ"),
             Truong("don_vi_cong_tac", "Đơn vị công tác"),
@@ -664,7 +666,7 @@ class TrangDoiTuong(Trang):
             "FROM doi_tuong dt WHERE da_xoa=0 AND (ten LIKE ? OR COALESCE(don_vi_cong_tac,'') LIKE ?)"
             + (" AND loai=?" if loai else "") + " ORDER BY loai, ten",
             (q, q, loai) if loai else (q, q)).fetchall()
-        do_du_lieu(self.ds, [["Tập thể" if r["loai"] == "tap_the" else "Cá nhân", r["ten"], r["chuc_vu"],
+        do_du_lieu(self.ds, [["Tập thể" if r["loai"] == "tap_the" else "Cá nhân", ten_hien_thi(r), r["chuc_vu"],
                               r["don_vi_cong_tac"], r["n"]] for r in rs], [r["id"] for r in rs])
         do_du_lieu(self.ls, [])
 

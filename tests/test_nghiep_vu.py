@@ -75,3 +75,19 @@ def test_nhat_ky_an_so_tai_khoan(nv):
     nv.them_doi_tuong({"loai": "ca_nhan", "ten": "A", "so_tai_khoan": "123456789"})
     nd = " ".join(r[0] or "" for r in nv.c.execute("SELECT noi_dung FROM nhat_ky"))
     assert "123456789" not in nd and "so_tai_khoan=***" in nd
+
+
+def test_ong_ba_va_cap_bac(nv):
+    from qlkt.services.nghiep_vu import ten_hien_thi
+    a = nv.them_doi_tuong({"loai": "ca_nhan", "ten": "Lò Thị A", "gioi_tinh": "Nữ"})
+    b = nv.them_doi_tuong({"loai": "ca_nhan", "ten": "Hà Văn B", "danh_xung": "Ông", "cap_bac": " Đại  úy "})
+    c = nv.them_doi_tuong({"loai": "tap_the", "ten": "Công an xã", "danh_xung": "Ông", "cap_bac": "Đại úy"})
+    rows = {r["id"]: r for r in nv.c.execute("SELECT * FROM doi_tuong")}
+    assert ten_hien_thi(rows[a]) == "Bà Lò Thị A"
+    assert ten_hien_thi(rows[b]) == "Đại úy Hà Văn B"
+    assert ten_hien_thi(rows[c]) == "Công an xã" and rows[c]["cap_bac"] is None
+    with pytest.raises(LoiNghiepVu):
+        nv.them_doi_tuong({"loai": "ca_nhan", "ten": "X", "danh_xung": "Đại úy"})
+    nv.sua_doi_tuong(b, {"cap_bac": None})
+    r = nv.c.execute("SELECT * FROM doi_tuong WHERE id=?", (b,)).fetchone()
+    assert ten_hien_thi(r) == "Ông Hà Văn B"
