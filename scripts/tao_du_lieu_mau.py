@@ -42,15 +42,16 @@ def tao(duong_dan: Path) -> None:
               "('Tổng kết năm học 2025-2026', 2026, '2026-12-10')")
 
     ca_nhan = [
-        ("Ông", "Nguyễn Văn A", "Phó Chỉ huy trưởng", "Ban Chỉ huy Quân sự xã", 4),
+        ("Đại úy", "Nguyễn Văn A", "Phó Chỉ huy trưởng", "Ban Chỉ huy Quân sự xã", 4),
         ("Ông", "Trần Văn B", "Bản đội trưởng", "Bản Mẫu 1", 4),
         ("Bà", "Lê Thị C", "Cán bộ", "Công an xã", 5),
         ("Ông", "Phạm Văn D", "Chuyên viên", "Phòng Kinh tế", 2),
         ("Bà", "Hoàng Thị E", "Hiệu trưởng", "Trường TH Mẫu A", 6),
     ]
     for dx, ten, cv, dv, dvid in ca_nhan:
-        c.execute("INSERT INTO doi_tuong(loai, danh_xung, ten, chuc_vu, don_vi_cong_tac, don_vi_id) "
-                  "VALUES ('ca_nhan', ?, ?, ?, ?, ?)", (dx, ten, cv, dv, dvid))
+        cap_bac = None if dx in ("Ông", "Bà") else dx
+        c.execute("INSERT INTO doi_tuong(loai, danh_xung, cap_bac, ten, chuc_vu, don_vi_cong_tac, don_vi_id) "
+                  "VALUES ('ca_nhan', ?, ?, ?, ?, ?, ?)", ("Ông" if cap_bac else dx, cap_bac, ten, cv, dv, dvid))
     tap_the = [("Ban Chỉ huy Quân sự xã", 4, "Người đại diện A"),
                ("Tập thể Dân quân Bản Mẫu 1", 7, "Người đại diện B"),
                ("Công an xã", 5, "Người đại diện C")]

@@ -35,4 +35,17 @@ for i, (ten, _) in enumerate(CuaSoChinh.TRANG):
         w.stack.currentWidget().ds.selectRow(1)
         app.processEvents()
     w.grab().save(str(ra / f"{i + 1}-{ten.replace(' ', '-').replace(',', '')}.png"))
+# Hộp thoại mẫu
+trang_hs = w.stack.widget(1)
+w.menu.setCurrentRow(1)
+from qlkt.ui.hop_thoai import HopThoaiNhap  # noqa: E402
+d = HopThoaiNhap("Hồ sơ mới", trang_hs._truong_ho_so(), parent=w)
+d.show(); app.processEvents()
+d.grab().save(str(ra / "7-Hop-thoai-ho-so-moi.png"))
+d.close()
+from qlkt.ui.main_window import TrangDoiTuong  # noqa: E402
+d = HopThoaiNhap("Thêm tập thể/cá nhân", TrangDoiTuong.truong(w.nv.c), parent=w,
+                 ghi_chu="Không nhập CCCD. Số tài khoản là dữ liệu cá nhân, chỉ nhập khi cần chi trả.")
+d.show(); app.processEvents()
+d.grab().save(str(ra / "8-Hop-thoai-doi-tuong.png"))
 print("Đã chụp", len(CuaSoChinh.TRANG), "màn hình vào", ra)

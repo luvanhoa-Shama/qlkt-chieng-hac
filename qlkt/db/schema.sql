@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS doi_tuong (
     id              INTEGER PRIMARY KEY,
     loai            TEXT NOT NULL CHECK (loai IN ('ca_nhan','tap_the')),
     ten             TEXT NOT NULL,              -- họ tên cá nhân hoặc tên tập thể
-    danh_xung       TEXT,                       -- Ông, Bà, Đại úy... (cá nhân)
+    danh_xung       TEXT CHECK (danh_xung IN ('Ông','Bà') OR danh_xung IS NULL),   -- cá nhân
+    cap_bac         TEXT,                       -- chỉ lực lượng vũ trang: Đại úy, Thiếu tá...
     nam_sinh        INTEGER,
     gioi_tinh       TEXT CHECK (gioi_tinh IN ('Nam','Nữ') OR gioi_tinh IS NULL),
     chuc_vu         TEXT,
