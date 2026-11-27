@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget,
 )
 
-from qlkt.services import excel_mau
+from qlkt.services import excel_mau, van_ban
 from qlkt.services.nghiep_vu import CHUYEN_TRANG_THAI, LoiNghiepVu, NghiepVu, ten_hien_thi
 from qlkt.ui.hop_thoai import HopThoaiChonNhieu, HopThoaiNhap, Truong
 
@@ -117,13 +117,6 @@ def nut(text: str, ham=None, chinh: bool = False) -> QPushButton:
         b.setObjectName("chinh")
     if ham:
         b.clicked.connect(ham)
-    return b
-
-
-def nut_chua_lam(text: str, buoc: str) -> QPushButton:
-    b = QPushButton(text)
-    b.setEnabled(False)
-    b.setToolTip(f"Sẽ làm ở {buoc}")
     return b
 
 
@@ -353,9 +346,19 @@ class TrangHoSo(Trang):
         for b in self.nut_luong.values():
             luong.addWidget(b)
         luong.addStretch()
-        for t in ("Sinh Tờ trình (Word)", "Sinh dự thảo QĐ (Word)", "Xuất DS chi trả (Excel)"):
-            luong.addWidget(nut_chua_lam(t, "bước 3"))
         cv.addLayout(luong)
+        xuat = QHBoxLayout()
+        xuat.addWidget(QLabel("Xuất:"))
+        self.nut_xuat = [
+            nut("Tờ trình (Word)", lambda: self.xuat("to_trinh")),
+            nut("Dự thảo QĐ + danh sách (Word)", lambda: self.xuat("quyet_dinh")),
+            nut("Danh sách đề nghị (Excel)", lambda: self.xuat("danh_sach")),
+            nut("Danh sách chi trả (Excel)", lambda: self.xuat("chi_tra")),
+        ]
+        for b in self.nut_xuat:
+            xuat.addWidget(b)
+        xuat.addStretch()
+        cv.addLayout(xuat)
         sp.addWidget(ct)
         sp.setSizes([230, 450])
         v.addWidget(sp)
@@ -424,6 +427,8 @@ class TrangHoSo(Trang):
         for b in (self.nut_sua, self.nut_them_dt, self.nut_sua_dong, self.nut_bo):
             b.setEnabled(mo)
         self.nut_xoa.setEnabled(trang_thai is not None and trang_thai != "da_co_qd")
+        for b in self.nut_xuat:
+            b.setEnabled(trang_thai is not None and trang_thai != "khong_duyet")
         duoc = CHUYEN_TRANG_THAI.get(trang_thai, set())
         for k, b in self.nut_luong.items():
             b.setVisible(k in duoc)
@@ -432,6 +437,9 @@ class TrangHoSo(Trang):
     def _truong_ho_so(self) -> list[Truong]:
         return [
             Truong("trich_yeu", "Trích yếu", bat_buoc=True, goi_y="VD: Khen thưởng công tác quân sự năm 2026"),
+            Truong("noi_dung_khen", "Nội dung khen (in trong văn bản)", "nhieu_dong",
+                   goi_y="VD: có thành tích xuất sắc trong thực hiện nhiệm vụ công tác quân sự, "
+                         "quốc phòng địa phương năm 2026"),
             Truong("phong_trao_id", "Phong trào", "chon", lua_chon=self.lua_chon(
                 "SELECT id, ten || ' (' || nam || ')' FROM phong_trao WHERE da_xoa=0 ORDER BY nam DESC, id DESC", "—")),
             Truong("don_vi_id", "Đơn vị đề nghị", "chon", bat_buoc=True, lua_chon=self.lua_chon(
@@ -545,6 +553,37 @@ class TrangHoSo(Trang):
                          parent=self)
         if d.exec() and chay(self, self.nv.khong_duyet, self.hs_id, d.ket_qua["ly_do"])[0]:
             self.nap()
+
+    # ---- xuất văn bản
+    def xuat(self, loai: str) -> None:
+        if self.hs_id is None:
+            return
+        if loai == "chi_tra" and not hoi(self, "Danh sách chi trả có SỐ TÀI KHOẢN (dữ liệu cá nhân). "
+                                              "Chỉ gửi cho kế toán, không gửi rộng hoặc đưa lên mạng. Tiếp tục?"):
+            return
+        ten = {"to_trinh": "To-trinh", "quyet_dinh": "Du-thao-QD", "danh_sach": "Danh-sach-de-nghi",
+               "chi_tra": "Danh-sach-chi-tra"}[loai]
+        duoi = "docx" if loai in ("to_trinh", "quyet_dinh") else "xlsx"
+        p, _ = QFileDialog.getSaveFileName(self, "Lưu file", str(Path.home() / f"{ten}-ho-so-{self.hs_id}.{duoi}"),
+                                           f"{duoi.upper()} (*.{duoi})")
+        if not p:
+            return
+        try:
+            if duoi == "docx":
+                van_ban.sinh_word(self.c, self.hs_id, loai, p)
+            elif loai == "danh_sach":
+                van_ban.xuat_danh_sach(self.c, self.hs_id, p)
+            else:
+                van_ban.xuat_chi_tra(self.c, self.hs_id, p)
+        except PermissionError:
+            QMessageBox.warning(self, "Không lưu được", "File đang mở trong Word/Excel. Đóng file rồi thử lại.")
+            return
+        except Exception as e:  # noqa: BLE001 - báo lỗi cho người dùng thay vì thoát chương trình
+            QMessageBox.critical(self, "Lỗi", f"Không tạo được file: {e}")
+            return
+        ghi_chu = ("\n\nĐây là DỰ THẢO. Rà soát các chỗ \"[...]\" và căn cứ trước khi trình ký trên iOffice."
+                   if duoi == "docx" else "")
+        QMessageBox.information(self, "Đã tạo", f"Đã lưu:\n{p}{ghi_chu}")
 
     # ---- nhập Excel
     def nhap_excel(self) -> None:
@@ -761,8 +800,11 @@ class TrangBaoCao(Trang):
         v.addWidget(QLabel("<b>Tổng hợp khen thưởng theo năm</b>"))
         v.addWidget(self.t)
         hang = QHBoxLayout()
-        for s in ("Xuất báo cáo Excel", "Xuất dữ liệu liên thông (CSV/JSON)"):
-            hang.addWidget(nut_chua_lam(s, "bước 3"))
+        hang.addWidget(QLabel("Năm:"))
+        self.nam = QComboBox()
+        hang.addWidget(self.nam)
+        hang.addWidget(nut("Xuất báo cáo Excel…", self.xuat_bao_cao, chinh=True))
+        hang.addWidget(nut("Xuất dữ liệu liên thông (CSV/JSON)…", self.xuat_lien_thong))
         hang.addStretch()
         v.addLayout(hang)
         self.nap()
@@ -772,6 +814,32 @@ class TrangBaoCao(Trang):
                             "SUM(so_tien) tien FROM v_lich_su_khen_thuong GROUP BY nam, hinh_thuc "
                             "ORDER BY nam DESC").fetchall()
         do_du_lieu(self.t, [[r["nam"], r["hinh_thuc"], r["tt"], r["cn"], tien(r["tien"])] for r in rs])
+        chon = self.nam.currentData()
+        self.nam.clear()
+        nam_ht = int(hom_nay()[:4])
+        for n in sorted({nam_ht, *(r["nam"] for r in rs if r["nam"])}, reverse=True):
+            self.nam.addItem(str(n), n)
+        if chon is not None and self.nam.findData(chon) >= 0:
+            self.nam.setCurrentIndex(self.nam.findData(chon))
+
+    def xuat_bao_cao(self) -> None:
+        nam = self.nam.currentData()
+        p, _ = QFileDialog.getSaveFileName(self, "Lưu báo cáo", str(Path.home() / f"Bao-cao-khen-thuong-{nam}.xlsx"),
+                                           "Excel (*.xlsx)")
+        if p:
+            ok, _ = chay(self, van_ban.xuat_bao_cao_nam, self.c, nam, p)
+            if ok:
+                QMessageBox.information(self, "Đã tạo", f"Đã lưu:\n{p}")
+
+    def xuat_lien_thong(self) -> None:
+        nam = self.nam.currentData()
+        thu_muc = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu dữ liệu liên thông", str(Path.home()))
+        if thu_muc:
+            ok, kq = chay(self, van_ban.xuat_lien_thong, self.c, thu_muc, nam)
+            if ok:
+                QMessageBox.information(self, "Đã xuất", "Đã lưu:\n" + "\n".join(str(x) for x in kq)
+                                        + "\n\nĐịnh dạng nội bộ, chưa theo chuẩn CSDL TĐKT quốc gia "
+                                          "(chưa có hướng dẫn). Không chứa số tài khoản.")
 
 
 # ---------------------------------------------------------------- Danh mục
@@ -854,10 +922,18 @@ class TrangDanhMuc(Trang):
                 ["Thứ tự", "Nội dung căn cứ", "Dùng cho", "Đang dùng"],
                 lambda r: [r["thu_tu"], r["noi_dung"], r["dung_cho"], cb if r["dang_dung"] else ""],
                 "SELECT * FROM can_cu ORDER BY dang_dung DESC, thu_tu",
-                "Căn cứ dùng khi sinh Tờ trình, Quyết định (bước 3). Cập nhật khi văn bản thay đổi.")),
+                "Căn cứ dùng khi sinh Tờ trình, Quyết định. Mỗi căn cứ một dòng, bắt đầu bằng \"Căn cứ…\". "
+                "Cập nhật khi văn bản thay đổi.")),
         ]
         for ten, w in self.tabs:
             tabs.addTab(w, ten)
+        ch = QWidget(); chv = QVBoxLayout(ch)
+        self.bang_ch = bang(["Mục", "Giá trị"], gian=1)
+        self.bang_ch.doubleClicked.connect(self.sua_cau_hinh)
+        hang = QHBoxLayout(); hang.addStretch(); hang.addWidget(nut("Sửa thông tin cơ quan…", self.sua_cau_hinh))
+        chv.addLayout(hang); chv.addWidget(self.bang_ch)
+        tabs.insertTab(0, ch, "Thông tin cơ quan")
+        tabs.setCurrentIndex(0)
         nk = QWidget(); nv_ = QVBoxLayout(nk)
         self.nhat_ky = bang(["Thời gian", "Hành động", "Bảng", "Mã", "Nội dung"], gian=4)
         nv_.addWidget(self.nhat_ky)
@@ -865,7 +941,20 @@ class TrangDanhMuc(Trang):
         v.addWidget(tabs)
         self.nap()
 
+    def sua_cau_hinh(self) -> None:
+        ch = van_ban.doc_cau_hinh(self.c)
+        nhieu = {"quyen_ky_ttr", "quyen_ky_qd", "noi_nhan_ttr", "noi_nhan_qd", "thi_hanh_qd"}
+        d = HopThoaiNhap("Thông tin cơ quan, người ký", [
+            Truong(k, nhan, "nhieu_dong" if k in nhieu else "text") for k, nhan in van_ban.NHAN_CAU_HINH.items()
+        ], ch, parent=self, ghi_chu="Dùng khi sinh Tờ trình, Quyết định, danh sách chi trả.")
+        if d.exec():
+            van_ban.luu_cau_hinh(self.c, d.ket_qua)
+            self.nap()
+
     def nap(self) -> None:
+        ch = van_ban.doc_cau_hinh(self.c)
+        do_du_lieu(self.bang_ch, [[nhan, (ch[k] or "[chưa nhập]").replace("\n", " / ")]
+                                  for k, nhan in van_ban.NHAN_CAU_HINH.items()])
         for _, w in self.tabs:
             w.nap()
         rs = self.c.execute("SELECT * FROM nhat_ky ORDER BY id DESC LIMIT 300").fetchall()
