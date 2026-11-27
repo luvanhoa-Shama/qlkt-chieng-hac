@@ -49,3 +49,31 @@ d = HopThoaiNhap("Thêm tập thể/cá nhân", TrangDoiTuong.truong(w.nv.c), pa
 d.show(); app.processEvents()
 d.grab().save(str(ra / "8-Hop-thoai-doi-tuong.png"))
 print("Đã chụp", len(CuaSoChinh.TRANG), "màn hình vào", ra)
+
+# Bước 4: cài đặt lần đầu, đăng nhập, trang Quản trị (tài khoản giả, thư mục tạm)
+from qlkt.duong_dan import MoiTruong  # noqa: E402
+from qlkt.services import sao_luu, tai_khoan  # noqa: E402
+from qlkt.ui.dang_nhap import HopThoaiCaiDatDauTien, HopThoaiDangNhap  # noqa: E402
+
+d = HopThoaiCaiDatDauTien(True); d.show(); app.processEvents()
+d.grab().save(str(ra / "9-Cai-dat-lan-dau.png")); d.close()
+c = ket_noi(db)
+qt = tai_khoan.tao_quan_tri_dau_tien(c, "quantri", "Quản trị (mẫu)", "quantri123")
+tai_khoan.them_nguoi_dung(c, qt.id, "thuongtruc2", "Cán bộ thường trực (mẫu)", "thuong_truc", "tam12345")
+tai_khoan.them_nguoi_dung(c, qt.id, "ketoan", "Kế toán (mẫu)", "ke_toan", "tam12345")
+tai_khoan.them_nguoi_dung(c, qt.id, "lanhdao", "Lãnh đạo UBND (mẫu)", "lanh_dao", "tam12345")
+d = HopThoaiDangNhap(c); d.show(); app.processEvents()
+d.grab().save(str(ra / "10-Dang-nhap.png")); d.close()
+tam = Path(tempfile.mkdtemp())
+mt = MoiTruong(tam / "du-lieu", tam / "sao-luu"); mt.du_lieu.mkdir(); mt.sao_luu.mkdir()
+sao_luu.sao_luu(c, None, mt.sao_luu, "tu-dong")
+sao_luu.sao_luu(c, None, mt.sao_luu, "tay")
+w2 = CuaSoChinh(c, tai_khoan.dang_nhap(c, "quantri", "quantri123"), mt, None)
+w2.resize(1280, 760); w2.show()
+w2.menu.setCurrentRow(w2.menu.count() - 1); app.processEvents()
+w2.grab().save(str(ra / "11-Quan-tri.png"))
+w3 = CuaSoChinh(c, tai_khoan.dang_nhap(c, "lanhdao", "tam12345"), mt, None)
+w3.resize(1280, 760); w3.show(); w3.menu.setCurrentRow(1); app.processEvents()
+w3.stack.currentWidget().ds.selectRow(2); app.processEvents()
+w3.grab().save(str(ra / "12-Lanh-dao-chi-xem.png"))
+print("Đã chụp thêm màn hình bước 4")
